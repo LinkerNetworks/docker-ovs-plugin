@@ -180,7 +180,7 @@ func (ovsdber *ovsdber) addBridge(bridgeName string) error {
 
 // deleteBridge deletes the OVS bridge
 func (ovsdber *ovsdber) deleteBridge(bridgeName string) error {
-	namedBridgeUUID := "bridge"
+	// namedBridgeUUID := "bridge"
 
 	// simple delete operation
 	condition := libovsdb.NewCondition("name", "==", bridgeName)
@@ -189,18 +189,26 @@ func (ovsdber *ovsdber) deleteBridge(bridgeName string) error {
 		Table: "Bridge",
 		Where: []interface{}{condition},
 	}
+        
+        bridgeUUID := getBridgeUUIDForName(bridgeName)
+	if bridgeUUID == "" {
+		log.Error("Unable to find a bridge uuid by name : ", bridgeName)
+		return fmt.Errorf("Unable to find a bridge uuid by name : [ %s ]", bridgeName)
+	}
 
 	// Deleting a Bridge row in Bridge table requires mutating the open_vswitch table.
-	mutateUUID := []libovsdb.UUID{libovsdb.UUID{namedBridgeUUID}}
+	mutateUUID := []libovsdb.UUID{libovsdb.UUID{bridgeUUID}}
 	mutateSet, _ := libovsdb.NewOvsSet(mutateUUID)
 	mutation := libovsdb.NewMutation("bridges", "delete", mutateSet)
+        conditionm := libovsdb.NewCondition("_uuid", "==", libovsdb.UUID{ovsdber.getRootUUID()})
 
+        log.Debugf("mutation is %v",mutateSet)
 	// simple mutate operation
 	mutateOp := libovsdb.Operation{
 		Op:        "mutate",
 		Table:     "Open_vSwitch",
 		Mutations: []interface{}{mutation},
-		Where:     []interface{}{condition},
+		Where:     []interface{}{conditionm},
 	}
 
 	operations := []libovsdb.Operation{deleteOp, mutateOp}
@@ -221,6 +229,17 @@ func (ovsdber *ovsdber) deleteBridge(bridgeName string) error {
 	}
 	log.Debugf("OVSDB delete bridge transaction succesful")
 	return nil
+}
+
+func getBridgeUUIDForName(name string) string {
+	bridgeCache := ovsdbCache["Bridge"]
+	for key, val := range bridgeCache {
+		if val.Fields["name"] == name {
+			return key
+		}
+	}
+	return ""
+
 }
 
 // todo: reconcile with what libnetwork does and port mappings

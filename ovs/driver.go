@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+        "net"
+        "errors"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/gopher-net/dknet"
@@ -104,7 +106,8 @@ func (d *Driver) CreateNetwork(r *dknet.CreateNetworkRequest) error {
 
 func (d *Driver) DeleteNetwork(r *dknet.DeleteNetworkRequest) error {
 	log.Debugf("Delete network request: %+v", r)
-	bridgeName := d.networks[r.NetworkID].BridgeName
+	// bridgeName := d.networks[r.NetworkID].BridgeName
+	bridgeName := bridgePrefix + truncateID(r.NetworkID)
 	log.Debugf("Deleting Bridge %s", bridgeName)
 	err := d.deleteBridge(bridgeName)
 	if err != nil {
@@ -145,7 +148,9 @@ func (d *Driver) Join(r *dknet.JoinRequest) (*dknet.JoinResponse, error) {
 		log.Warnf("Error enabling  Veth local iface: [ %v ]", localVethPair)
 		return nil, err
 	}
-	bridgeName := d.networks[r.NetworkID].BridgeName
+
+	// bridgeName := d.networks[r.NetworkID].BridgeName
+	bridgeName := bridgePrefix + truncateID(r.NetworkID)
 	err = d.addOvsVethPort(bridgeName, localVethPair.Name, 0)
 	if err != nil {
 		log.Errorf("error attaching veth [ %s ] to bridge [ %s ]", localVethPair.Name, bridgeName)
@@ -154,12 +159,17 @@ func (d *Driver) Join(r *dknet.JoinRequest) (*dknet.JoinResponse, error) {
 	log.Infof("Attached veth [ %s ] to bridge [ %s ]", localVethPair.Name, bridgeName)
 
 	// SrcName gets renamed to DstPrefix + ID on the container iface
+	gatewayIP, err := getIPByInterface(bridgeName)
+	if err != nil {
+		log.Errorf("error get gateway ip of bridgeName %s", bridgeName)
+		return nil, err
+	}
 	res := &dknet.JoinResponse{
 		InterfaceName: dknet.InterfaceName{
 			SrcName:   localVethPair.PeerName,
 			DstPrefix: containerEthName,
 		},
-		Gateway: d.networks[r.NetworkID].Gateway,
+		Gateway: gatewayIP,
 	}
 	log.Debugf("Join endpoint %s:%s to %s", r.NetworkID, r.EndpointID, r.SandboxKey)
 	return res, nil
@@ -172,7 +182,8 @@ func (d *Driver) Leave(r *dknet.LeaveRequest) error {
 		log.Errorf("unable to delete veth on leave: %s", err)
 	}
 	portID := fmt.Sprintf(ovsPortPrefix + truncateID(r.EndpointID))
-	bridgeName := d.networks[r.NetworkID].BridgeName
+	// bridgeName := d.networks[r.NetworkID].BridgeName
+	bridgeName := bridgePrefix + truncateID(r.NetworkID)
 	err := d.ovsdber.deletePort(bridgeName, portID)
 	if err != nil {
 		log.Errorf("OVS port [ %s ] delete transaction failed on bridge [ %s ] due to: %s", portID, bridgeName, err)
@@ -219,6 +230,29 @@ func NewDriver() (*Driver, error) {
 	return d, nil
 }
 
+func getIPByInterface(iname string) (string, error) {
+	log.Infof("interface name is %s", iname)
+	iface, err := net.InterfaceByName(iname)
+	if err != nil {
+		log.Errorf("get interfaces by name error %v", err)
+		return "", err
+	}
+	addrs, erra := iface.Addrs()
+	if erra != nil {
+		log.Errorf("get address by name error %v", erra)
+		return "", erra
+	}
+
+	log.Infof("the addrs of specific interfaces is %v", addrs)
+	if len(addrs) > 0 {
+		ip, _, _ := net.ParseCIDR(addrs[0].String())
+		return ip.String(), nil
+	} else {
+		log.Errorf("no ip address on specific interfaces %s", iname)
+		return "", errors.New("get ip by interface name error")
+	}
+}
+
 // Create veth pair. Peername is renamed to eth0 in the container
 func vethPair(suffix string) *netlink.Veth {
 	return &netlink.Veth{
@@ -258,6 +292,7 @@ func getBridgeName(r *dknet.CreateNetworkRequest) (string, error) {
 			bridgeName = name
 		}
 	}
+
 	return bridgeName, nil
 }
 
