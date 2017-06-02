@@ -1,9 +1,9 @@
 package ovs
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
-
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -69,7 +69,27 @@ func (d *Driver) initBridge(id string) error {
 		return err
 	}
 
+	bindInterface := d.networks[id].FlatBindInterface
+	networktype := d.networks[id].NetworkType
+	networkname := d.networks[id].NetworkName
+	runOvsScript(bridgeName, networkname, networktype, bindInterface)
+
 	return nil
+}
+
+func runOvsScript(bridgeName, networkName, networkType, bindInterface string) {
+	var commandTextBuffer bytes.Buffer
+	commandTextBuffer.WriteString("/usr/sbin/ovsopt.sh ")
+	commandTextBuffer.WriteString(networkType + " ")
+	commandTextBuffer.WriteString(networkName + " ")
+	commandTextBuffer.WriteString(bridgeName + " ")
+	commandTextBuffer.WriteString(bindInterface)
+
+	err := ExecCommandWithoutComplete(commandTextBuffer.String())
+	if err != nil {
+		log.Errorf("start ovsopt.sh error %v", err)
+	}
+
 }
 
 func (ovsdber *ovsdber) createBridgeIface(name string) error {
@@ -189,8 +209,8 @@ func (ovsdber *ovsdber) deleteBridge(bridgeName string) error {
 		Table: "Bridge",
 		Where: []interface{}{condition},
 	}
-        
-        bridgeUUID := getBridgeUUIDForName(bridgeName)
+
+	bridgeUUID := getBridgeUUIDForName(bridgeName)
 	if bridgeUUID == "" {
 		log.Error("Unable to find a bridge uuid by name : ", bridgeName)
 		return fmt.Errorf("Unable to find a bridge uuid by name : [ %s ]", bridgeName)
@@ -200,9 +220,9 @@ func (ovsdber *ovsdber) deleteBridge(bridgeName string) error {
 	mutateUUID := []libovsdb.UUID{libovsdb.UUID{bridgeUUID}}
 	mutateSet, _ := libovsdb.NewOvsSet(mutateUUID)
 	mutation := libovsdb.NewMutation("bridges", "delete", mutateSet)
-        conditionm := libovsdb.NewCondition("_uuid", "==", libovsdb.UUID{ovsdber.getRootUUID()})
+	conditionm := libovsdb.NewCondition("_uuid", "==", libovsdb.UUID{ovsdber.getRootUUID()})
 
-        log.Debugf("mutation is %v",mutateSet)
+	log.Debugf("mutation is %v", mutateSet)
 	// simple mutate operation
 	mutateOp := libovsdb.Operation{
 		Op:        "mutate",
@@ -264,3 +284,4 @@ func natOut(cidr string) error {
 	}
 	return nil
 }
+

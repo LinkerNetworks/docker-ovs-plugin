@@ -1,13 +1,14 @@
 package ovs
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
-        "net"
-        "errors"
 
 	log "github.com/Sirupsen/logrus"
+	// "github.com/docker/libnetwork/iptables"
 	"github.com/gopher-net/dknet"
 	"github.com/samalba/dockerclient"
 	"github.com/socketplane/libovsdb"
@@ -20,13 +21,21 @@ const (
 	bridgePrefix     = "ovsbr-"
 	containerEthName = "eth"
 
-	mtuOption           = "net.gopher.ovs.bridge.mtu"
-	modeOption          = "net.gopher.ovs.bridge.mode"
-	bridgeNameOption    = "net.gopher.ovs.bridge.name"
-	bindInterfaceOption = "net.gopher.ovs.bridge.bind_interface"
+	optionKey = "com.docker.network.generic"
+
+	mtuOption           = "linker.net.ovs.bridge.mtu"
+	modeOption          = "linker.net.ovs.bridge.mode"
+	bridgeNameOption    = "linker.net.ovs.bridge.name"
+	bindInterfaceOption = "linker.net.ovs.bridge.bind_interface"
+	typeOption          = "linker.net.ovs.bridge.type" //"sgw" or "pgw"
+	networkNameOption   = "linker.net.ovs.network.name"
+
+	// portMappingKey = "com.docker.network.portmap"
 
 	modeNAT  = "nat"
 	modeFlat = "flat"
+	type_sgw = "sgw"
+	type_pgw = "pgw"
 
 	defaultMTU  = 1500
 	defaultMode = modeNAT
@@ -56,8 +65,23 @@ type NetworkState struct {
 	Gateway           string
 	GatewayMask       string
 	FlatBindInterface string
+	NetworkType       string
+	NetworkName       string
 }
 
+//CreateNetworkRequest value is :
+//{
+//  NetworkID:281746a33da5c97b088275925d6dd8b91bd1ba3e7ded0714e2cef47125074e38
+//  Options: map[
+//                com.docker.network.enable_ipv6:false
+//                com.docker.network.generic: map[
+//                                                linker.net.ovs.network.name:newovs
+//                                                linker.net.ovs.bridge.bind_interface:eth100
+//                                                linker.net.ovs.bridge.type:sgw]
+//              ]
+// IPv4Data:[0xc42011e000]
+// IPv6Data:[]
+//}
 func (d *Driver) CreateNetwork(r *dknet.CreateNetworkRequest) error {
 	log.Debugf("Create network request: %+v", r)
 
@@ -86,6 +110,19 @@ func (d *Driver) CreateNetwork(r *dknet.CreateNetworkRequest) error {
 		return err
 	}
 
+	networkName, err := getNetworkName(r)
+	if err != nil {
+		return err
+	}
+
+	networktype := getNetworkType(r)
+
+        errc := checkExecutable(networktype, networkName)
+	if errc != nil {
+		log.Errorf("validate failed, error is %v", errc)
+		return errc
+	}
+        
 	ns := &NetworkState{
 		BridgeName:        bridgeName,
 		MTU:               mtu,
@@ -93,16 +130,52 @@ func (d *Driver) CreateNetwork(r *dknet.CreateNetworkRequest) error {
 		Gateway:           gateway,
 		GatewayMask:       mask,
 		FlatBindInterface: bindInterface,
+		NetworkType:       networktype,
+		NetworkName:       networkName,
 	}
 	d.networks[r.NetworkID] = ns
 
 	log.Debugf("Initializing bridge for network %s", r.NetworkID)
+	log.Debugf("Network status is %v", *ns)
 	if err := d.initBridge(r.NetworkID); err != nil {
 		delete(d.networks, r.NetworkID)
 		return err
 	}
+
+	// d.addBridgeToInterface(bridgeName, bindInterface)
+
 	return nil
 }
+
+func checkExecutable(networkType, networkName string) error {
+	if !strings.EqualFold(networkType, type_sgw) && !strings.EqualFold(networkType, type_pgw) {
+		return nil
+	}
+	//it's a sgw or pgw type
+	if len(networkName) <= 0 {
+		log.Errorf("options must specify network name for sgw or pgw type")
+		return errors.New("options must specify network name for sgw or pgw type")
+	}
+
+	command := "ps -ef | grep /usr/sbin/ovsopt.sh | grep -v grep | wc -l"
+	output, _, _ := ExecCommandWithComplete(command)
+	if output == "0" {
+		return nil
+	} else {
+		return errors.New("current node already run sgw or pgw process")
+	}
+}
+
+
+// func (d *Driver) addBridgeToInterface(bridgeName string, bindInterface string) {
+// 	log.Debugf("begin to add ovs bridge %s to interface %s", bridgeName, bindInterface)
+// 	err = d.addOvsVethPort(bindInterface, bridgeName, 0)
+// 	if err != nil {
+// 		log.Errorf("error attaching ovs bridge [ %s ] to interface [ %s ]", bridgeName, bindInterface)
+// 		return
+// 	}
+// 	return
+// }
 
 func (d *Driver) DeleteNetwork(r *dknet.DeleteNetworkRequest) error {
 	log.Debugf("Delete network request: %+v", r)
@@ -119,7 +192,17 @@ func (d *Driver) DeleteNetwork(r *dknet.DeleteNetworkRequest) error {
 }
 
 func (d *Driver) CreateEndpoint(r *dknet.CreateEndpointRequest) error {
-	log.Debugf("Create endpoint request: %+v", r)
+	// log.Debugf("Create endpoint request: %+v", r)
+	// //add filter and nat rule for container here
+	// interfaceobj := *(r.Interface)
+	// containerIP := parseContainerIP(interfaceobj.Address)
+	// hostPort, containerPort := parsePort(ainterface.Options)
+	// log.Infof("hostPort is %s, containerPort is %s", hostPort, containerPort)
+	// if hostPort == "" || containerPort == "" {
+	// 	return nil
+	// } else {
+
+	// }
 	return nil
 }
 
@@ -137,6 +220,7 @@ func (d *Driver) EndpointInfo(r *dknet.InfoRequest) (*dknet.InfoResponse, error)
 
 func (d *Driver) Join(r *dknet.JoinRequest) (*dknet.JoinResponse, error) {
 	// create and attach local name to the bridge
+	log.Debugf("join request is %v", r)
 	localVethPair := vethPair(truncateID(r.EndpointID))
 	if err := netlink.LinkAdd(localVethPair); err != nil {
 		log.Errorf("failed to create the veth pair named: [ %v ] error: [ %s ] ", localVethPair, err)
@@ -253,6 +337,30 @@ func getIPByInterface(iname string) (string, error) {
 	}
 }
 
+// func parseContainerIP(fullip string) string {
+// 	log.Debugf("the full ip is %s", fullip)
+// 	ips := strings.Split(fullip, "/")
+// 	ip := ips[0]
+// 	log.Infof("the requested container ip is %s", ip)
+// 	return ip
+// }
+
+// func parsePort(options map[string]interface{}) (string, string) {
+// 	if len(options) <= 0 {
+// 		log.Infof("no info in options")
+// 		return "", ""
+// 	}
+
+// 	portMappingIn := options[portMappingKey]
+// 	portMapping := portMappingIn.(map[string]string)
+// 	if len(portMapping) <= 0 {
+// 		log.Infof("no port mapping info")
+// 		return "", ""
+// 	}
+
+// 	return portMapping["HostPort"], portMapping["Port"]
+// }
+
 // Create veth pair. Peername is renamed to eth0 in the container
 func vethPair(suffix string) *netlink.Veth {
 	return &netlink.Veth{
@@ -348,10 +456,42 @@ func getGatewayIP(r *dknet.CreateNetworkRequest) (string, string, error) {
 
 func getBindInterface(r *dknet.CreateNetworkRequest) (string, error) {
 	if r.Options != nil {
-		if mode, ok := r.Options[bindInterfaceOption].(string); ok {
-			return mode, nil
+		optionObj := r.Options[optionKey]
+		if optionObj != nil {
+			option := optionObj.(map[string]interface{})
+			if interfacs, ok := option[bindInterfaceOption].(string); ok {
+				return interfacs, nil
+			}
 		}
 	}
-	// As bind interface is optional and has no default, don't return an error
 	return "", nil
 }
+
+func getNetworkName(r *dknet.CreateNetworkRequest) (string, error) {
+	if r.Options != nil {
+		optionObj := r.Options[optionKey]
+		if optionObj != nil {
+			option := optionObj.(map[string]interface{})
+			if networkName, ok := option[networkNameOption].(string); ok {
+				return networkName, nil
+			}
+		}
+	}
+
+	return "", nil
+}
+
+func getNetworkType(r *dknet.CreateNetworkRequest) string {
+	if r.Options != nil {
+		optionObj := r.Options[optionKey]
+		if optionObj != nil {
+			option := optionObj.(map[string]interface{})
+			if interfacs, ok := option[typeOption].(string); ok {
+				return interfacs
+			}
+		}
+	}
+
+	return ""
+}
+
