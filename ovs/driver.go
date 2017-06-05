@@ -148,8 +148,9 @@ func (d *Driver) CreateNetwork(r *dknet.CreateNetworkRequest) error {
 }
 
 func checkExecutable(networkType, networkName string) error {
-	if !strings.EqualFold(networkType, type_sgw) && !strings.EqualFold(networkType, type_pgw) {
-		return nil
+        if !strings.EqualFold(networkType, type_sgw) && !strings.EqualFold(networkType, type_pgw) {
+		log.Errorf("only sgw and pgw type is allowed!, current type is %s", networkType)
+		return errors.New("network type is not supported!")
 	}
 	//it's a sgw or pgw type
 	if len(networkName) <= 0 {
@@ -494,4 +495,5 @@ func getNetworkType(r *dknet.CreateNetworkRequest) string {
 
 	return ""
 }
+
 

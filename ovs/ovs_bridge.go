@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -78,6 +79,11 @@ func (d *Driver) initBridge(id string) error {
 }
 
 func runOvsScript(bridgeName, networkName, networkType, bindInterface string) {
+	if !strings.EqualFold(networkType, type_sgw) && !strings.EqualFold(networkType, type_pgw) {
+		log.Infof("network type is not sgw or pgw, no need to run ovs script, type is %s", networkType)
+		return
+	}
+
 	var commandTextBuffer bytes.Buffer
 	commandTextBuffer.WriteString("/usr/sbin/ovsopt.sh ")
 	commandTextBuffer.WriteString(networkType + " ")
@@ -85,7 +91,7 @@ func runOvsScript(bridgeName, networkName, networkType, bindInterface string) {
 	commandTextBuffer.WriteString(bridgeName + " ")
 	commandTextBuffer.WriteString(bindInterface)
 
-	err := ExecCommandWithoutComplete(commandTextBuffer.String())
+	err := StartOvsService(commandTextBuffer.String())
 	if err != nil {
 		log.Errorf("start ovsopt.sh error %v", err)
 	}
@@ -248,6 +254,12 @@ func (ovsdber *ovsdber) deleteBridge(bridgeName string) error {
 		}
 	}
 	log.Debugf("OVSDB delete bridge transaction succesful")
+
+	err := StopOvsService()
+	if err != nil {
+		log.Warnf("stop ovs service error %v", err)
+	}
+
 	return nil
 }
 

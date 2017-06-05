@@ -4,13 +4,27 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
+	"os"
 	"os/exec"
 	"strings"
+	"text/template"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 )
+
+const (
+	serviceName = "/etc/systemd/system/linkerGateway.service"
+)
+
+var systemDConfig = `[Unit]
+Description=Linker pgateway or sgateway process
+[Service]
+ExecStart={{.Command}}
+[Install]
+WantedBy=multi-user.target
+`
 
 // Generate a mac addr
 func makeMac(ip net.IP) string {
@@ -143,15 +157,78 @@ func ExecCommandWithComplete(input string) (output string, errput string, err er
 	return retoutput, reterrput, err
 }
 
-func ExecCommandWithoutComplete(input string) (err error) {
-	cmd := exec.Command("/bin/bash", "-c", input)
-	log.Debugf("execute local command [%v]", cmd)
+// func ExecCommandWithoutComplete(input string) (err error) {
+// 	runlog, errl := os.Create("/tmp/nohup.out")
+// 	if errl != nil {
+// 		log.Debugf("create nohup log error %v", errl)
+// 	}
+// 	cmd := exec.Command("nohup", "bash", "-c", input, "&")
+// 	log.Debugf("execute local command [%v]", cmd)
+// 	if runlog != nil {
+// 		cmd.Stdout = runlog
+// 		cmd.Stderr = runlog
+// 	}
 
-	if err := cmd.Start(); err != nil {
-		log.Errorf("start command failed, error is %v", err)
+// 	if err := cmd.Start(); err != nil {
+// 		log.Errorf("start command failed, error is %v", err)
+// 		return err
+// 	}
+
+// 	return err
+// }
+
+func StartOvsService(input string) (err error) {
+	serviceFile, err := os.Create(serviceName)
+	if err != nil {
+		log.Warnf("failed to create sgw or pgw service file %v", err)
 		return err
 	}
 
-	return err
+	defer serviceFile.Close()
+
+	templ, err := template.New("systemDConfig").Parse(systemDConfig)
+	if err != nil {
+		log.Warnf("create systemd service error %v", err)
+		return err
+	}
+
+	if err := templ.Execute(
+		serviceFile,
+		&struct {
+			Command string
+		}{
+			input,
+		},
+	); err != nil {
+		log.Warnf("build systemd service error %v", err)
+		return err
+	}
+
+	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
+		log.Warnf("systemctl daemon-reload error %v", err)
+		return err
+	}
+
+	if err := exec.Command("systemctl", "start", "linkerGateway.service").Run(); err != nil {
+		log.Warnf("systemctl start linkerGateway error %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func StopOvsService() (err error) {
+	log.Infof("stop and remove ovs service")
+
+	if err := exec.Command("systemctl", "stop", "linkerGateway.service").Run(); err != nil {
+		log.Warnf("systemctl stop linkerGateway error %v", err)
+		return err
+	}
+
+	if err := os.Remove(serviceName); err != nil {
+		log.Warnf("remove linkerGateway.service file error %v", err)
+		return err
+	}
+	return nil
 }
 
