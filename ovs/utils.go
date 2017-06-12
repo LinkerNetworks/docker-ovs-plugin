@@ -217,8 +217,8 @@ func StartOvsService(input string) (err error) {
 	return nil
 }
 
-func StopOvsService() (err error) {
-	log.Infof("stop and remove ovs service")
+func stopOvsService() (err error) {
+	log.Infof("stop and remove linkerGateway process")
 
 	if err := exec.Command("systemctl", "stop", "linkerGateway.service").Run(); err != nil {
 		log.Warnf("systemctl stop linkerGateway error %v", err)
@@ -231,4 +231,26 @@ func StopOvsService() (err error) {
 	}
 	return nil
 }
+
+// func needStopGatewayProcess(docker dockerer, networkID string) bool {
+// 	networks, err := docker.client.ListNetworks("")
+// 	if err != nil {
+// 		log.Warnf("get all networks on node error %v", err)
+// 		return false
+// 	}
+
+// 	for _, network := range networks {
+// 		if strings.EqualFold(networkID, network.ID) {
+// 			log.Debugf("delete network is %v", network)
+// 			option := (network.Options).(map[string]string)
+// 			serviceType := option[typeOption]
+// 			if strings.EqualFold(serviceType, type_sgw) ||
+// 				strings.EqualFold(serviceType, type_pgw) {
+// 				return true
+// 			}
+// 		}
+// 	}
+
+// 	return false
+// }
 

@@ -58,6 +58,7 @@ func (ovsdber *ovsdber) initDBCache() {
 	if err != nil {
 		log.Errorf("Error populating initial OVSDB cache: %s", err)
 	}
+        log.Debugf("MonitorAll is %v", *initCache)
 	populateCache(*initCache)
 	contextCache = make(map[string]string)
 	populateContextCache(ovsdber.ovsdb)
@@ -72,6 +73,7 @@ func (ovsdber *ovsdber) initDBCache() {
 func populateContextCache(ovs *libovsdb.OvsdbClient) {
 	if ovs == nil {
 		return
+
 	}
 	tableCache := getTableCache("Interface")
 	for _, row := range tableCache {
@@ -102,7 +104,7 @@ func (ovsdber *ovsdber) portExists(portName string) (bool, error) {
 	reply, _ := ovsdber.ovsdb.Transact("Open_vSwitch", operations...)
 
 	if len(reply) < len(operations) {
-		return false, errors.New("Number of Replies should be atleast equal to number of Operations")
+		return false, errors.New("Number of Replies should be at least equal to number of Operations")
 	}
 
 	if reply[0].Error != "" {
@@ -114,6 +116,37 @@ func (ovsdber *ovsdber) portExists(portName string) (bool, error) {
 		return false, nil
 	}
 	return true, nil
+}
+
+func (ovsdber *ovsdber) getBridgeServiceType(bridgenName string) (string, error) {
+	condition := libovsdb.NewCondition("name", "==", bridgenName)
+	selectOp := libovsdb.Operation{
+		Op:    "select",
+		Table: "BridgeOpt",
+		Where: []interface{}{condition},
+	}
+	operations := []libovsdb.Operation{selectOp}
+	reply, _ := ovsdber.ovsdb.Transact("Open_vSwitch", operations...)
+
+	if len(reply) < len(operations) {
+		return "", errors.New("Number of Replies should be at least equal to number of Operations")
+	}
+
+	if reply[0].Error != "" {
+		errMsg := fmt.Sprintf("Transaction Failed due to an error: %v", reply[0].Error)
+		return "", errors.New(errMsg)
+	}
+
+	rets := reply[0].Rows
+	if len(rets) <= 0 {
+		log.Warnf("no bridge with name %s", bridgenName)
+		return "", errors.New("no record with bridge name")
+	}
+	log.Debugf("the record with bridgeName %s is %v", bridgenName, rets)
+
+	serviceType := rets[0]["service_type"].(string)
+	return serviceType, nil
+
 }
 
 func (ovsdber *ovsdber) monitorBridges() {
@@ -128,7 +161,7 @@ func (ovsdber *ovsdber) monitorBridges() {
 							oldRow := row.Old
 							if _, ok := oldRow.Fields["name"]; ok {
 								name := oldRow.Fields["name"].(string)
-								ovsdber.createOvsdbBridge(name)
+								ovsdber.createOvsdbBridge(name, "none")
 							}
 						}
 					}
@@ -146,6 +179,7 @@ func (ovsdber *ovsdber) getRootUUID() string {
 }
 
 func populateCache(updates libovsdb.TableUpdates) {
+        log.Debugf("udpates is %v", updates)
 	for table, tableUpdate := range updates.Updates {
 		if _, ok := ovsdbCache[table]; !ok {
 			ovsdbCache[table] = make(map[string]libovsdb.Row)
@@ -160,3 +194,4 @@ func populateCache(updates libovsdb.TableUpdates) {
 		}
 	}
 }
+

@@ -41,5 +41,6 @@ func Run(ctx *cli.Context) {
 		panic(err)
 	}
 	h := dknet.NewHandler(d)
-	h.ServeUnix("root", "ovs")
+	errs:=h.ServeUnix("root", "ovs")
+        log.Debugln(errs)
 }

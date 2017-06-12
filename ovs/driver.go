@@ -117,12 +117,12 @@ func (d *Driver) CreateNetwork(r *dknet.CreateNetworkRequest) error {
 
 	networktype := getNetworkType(r)
 
-        errc := checkExecutable(networktype, networkName)
+	errc := checkExecutable(networktype, networkName)
 	if errc != nil {
 		log.Errorf("validate failed, error is %v", errc)
 		return errc
 	}
-        
+
 	ns := &NetworkState{
 		BridgeName:        bridgeName,
 		MTU:               mtu,
@@ -148,9 +148,9 @@ func (d *Driver) CreateNetwork(r *dknet.CreateNetworkRequest) error {
 }
 
 func checkExecutable(networkType, networkName string) error {
-        if !strings.EqualFold(networkType, type_sgw) && !strings.EqualFold(networkType, type_pgw) {
-		log.Errorf("only sgw and pgw type is allowed!, current type is %s", networkType)
-		return errors.New("network type is not supported!")
+	if !strings.EqualFold(networkType, type_sgw) && !strings.EqualFold(networkType, type_pgw) {
+		log.Infof("network service type is %s", networkType)
+		return nil
 	}
 	//it's a sgw or pgw type
 	if len(networkName) <= 0 {
@@ -166,7 +166,6 @@ func checkExecutable(networkType, networkName string) error {
 		return errors.New("current node already run sgw or pgw process")
 	}
 }
-
 
 // func (d *Driver) addBridgeToInterface(bridgeName string, bindInterface string) {
 // 	log.Debugf("begin to add ovs bridge %s to interface %s", bridgeName, bindInterface)
@@ -495,5 +494,4 @@ func getNetworkType(r *dknet.CreateNetworkRequest) string {
 
 	return ""
 }
-
 
