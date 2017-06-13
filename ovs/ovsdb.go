@@ -161,7 +161,12 @@ func (ovsdber *ovsdber) monitorBridges() {
 							oldRow := row.Old
 							if _, ok := oldRow.Fields["name"]; ok {
 								name := oldRow.Fields["name"].(string)
-								ovsdber.createOvsdbBridge(name, "none")
+                                                                servicetype, err := ovsdber.getBridgeServiceType(name)
+								if err != nil {
+									log.Warnf("get servicetpye for bridgeName %s, error %v", name, err)
+									servicetype = "none"
+								}
+								ovsdber.createOvsdbBridge(name, servicetype)
 							}
 						}
 					}
