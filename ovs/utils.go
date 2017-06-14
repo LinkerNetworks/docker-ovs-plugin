@@ -213,6 +213,9 @@ func StartOvsService(input string) (err error) {
 		log.Warnf("systemctl start linkerGateway error %v", err)
 		return err
 	}
+        if err := exec.Command("systemctl", "enable", "linkerGateway.service").Run(); err != nil {
+		log.Warnf("systemctl enable linkerGateway error %v", err)
+	}
 
 	return nil
 }
@@ -223,6 +226,9 @@ func stopOvsService() (err error) {
 	if err := exec.Command("systemctl", "stop", "linkerGateway.service").Run(); err != nil {
 		log.Warnf("systemctl stop linkerGateway error %v", err)
 		return err
+	}
+        if err := exec.Command("systemctl", "disable", "linkerGateway.service").Run(); err != nil {
+		log.Warnf("systemctl disable linkerGateway error %v", err)
 	}
 
 	if err := os.Remove(serviceName); err != nil {
