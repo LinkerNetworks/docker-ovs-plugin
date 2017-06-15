@@ -24,7 +24,7 @@ func (d *Driver) initBridge(id string) error {
 		return err
 	}
 
-	retries := 3
+	retries := 10
 	found := false
 	for i := 0; i < retries; i++ {
 		if found = validateIface(bridgeName); found {
