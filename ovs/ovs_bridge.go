@@ -142,6 +142,10 @@ func (ovsdber *ovsdber) createOvsdbBridge(bridgeName, servicetype string) error 
 	bridge["name"] = bridgeName
 	bridge["stp_enable"] = false
 	bridge["ports"] = libovsdb.UUID{namedPortUUID}
+        //for sgw and pgw, set datapath_type to "netdev"
+	if strings.EqualFold(servicetype, type_pgw) || strings.EqualFold(servicetype, type_sgw) {
+		bridge["datapath_type"] = "netdev"
+	}
 
 	//insert bridge opt info, such as servicetype
 	insertBridgeOp := libovsdb.Operation{
