@@ -80,10 +80,10 @@ func (d *Driver) initBridge(id string) error {
 }
 
 func runOvsScript(bridgeName, networkName, networkType, bindInterface string) {
-	if !strings.EqualFold(networkType, type_sgw) && !strings.EqualFold(networkType, type_pgw) {
-		log.Infof("network type is not sgw or pgw, no need to run ovs script, type is %s", networkType)
-		return
-	}
+	//if !strings.EqualFold(networkType, type_sgw) && !strings.EqualFold(networkType, type_pgw) {
+	//	log.Infof("network type is not sgw or pgw, no need to run ovs script, type is %s", networkType)
+	//	return
+	//}
 
 	var commandTextBuffer bytes.Buffer
 	commandTextBuffer.WriteString("/usr/sbin/ovsopt.sh ")
