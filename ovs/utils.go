@@ -178,6 +178,7 @@ func ExecCommandWithComplete(input string) (output string, errput string, err er
 // }
 
 func StartOvsService(input string) (err error) {
+	log.Infof("start ovs service, command is %s", input)
 	serviceFile, err := os.Create(serviceName)
 	if err != nil {
 		log.Warnf("failed to create sgw or pgw service file %v", err)
