@@ -58,7 +58,7 @@ func (ovsdber *ovsdber) initDBCache() {
 	if err != nil {
 		log.Errorf("Error populating initial OVSDB cache: %s", err)
 	}
-        log.Debugf("MonitorAll is %v", *initCache)
+	log.Debugf("MonitorAll is %v", *initCache)
 	populateCache(*initCache)
 	contextCache = make(map[string]string)
 	populateContextCache(ovsdber.ovsdb)
@@ -149,6 +149,69 @@ func (ovsdber *ovsdber) getBridgeServiceType(bridgenName string) (string, error)
 
 }
 
+func (ovsdber *ovsdber) getNetworkidByBridgeName(bridgenName string) (string, error) {
+	log.Debugf("get networid by bridgeName %s", bridgenName)
+	condition := libovsdb.NewCondition("name", "==", bridgenName)
+	selectOp := libovsdb.Operation{
+		Op:    "select",
+		Table: "BridgeOpt",
+		Where: []interface{}{condition},
+	}
+	operations := []libovsdb.Operation{selectOp}
+	reply, _ := ovsdber.ovsdb.Transact("Open_vSwitch", operations...)
+
+	if len(reply) < len(operations) {
+		return "", errors.New("Number of Replies should be at least equal to number of Operations")
+	}
+
+	if reply[0].Error != "" {
+		errMsg := fmt.Sprintf("Transaction Failed due to an error: %v", reply[0].Error)
+		return "", errors.New(errMsg)
+	}
+
+	rets := reply[0].Rows
+	if len(rets) <= 0 {
+		log.Warnf("no bridge with name %s", bridgenName)
+		return "", errors.New("no record with bridge name")
+	}
+	log.Debugf("the record with bridgeName %s is %v", bridgenName, rets)
+
+	networkid := rets[0]["network_id"].(string)
+	return networkid, nil
+
+}
+
+func (ovsdber *ovsdber) getBridgeNameByNetworkId(networkid string) (string, error) {
+	log.Debugf("get bridgeName by networkid %s", networkid)
+	condition := libovsdb.NewCondition("network_id", "==", networkid)
+	selectOp := libovsdb.Operation{
+		Op:    "select",
+		Table: "BridgeOpt",
+		Where: []interface{}{condition},
+	}
+	operations := []libovsdb.Operation{selectOp}
+	reply, _ := ovsdber.ovsdb.Transact("Open_vSwitch", operations...)
+
+	if len(reply) < len(operations) {
+		return "", errors.New("Number of Replies should be at least equal to number of Operations")
+	}
+
+	if reply[0].Error != "" {
+		errMsg := fmt.Sprintf("Transaction Failed due to an error: %v", reply[0].Error)
+		return "", errors.New(errMsg)
+	}
+
+	rets := reply[0].Rows
+	if len(rets) <= 0 {
+		log.Warnf("no bridge with networkid %s", networkid)
+		return "", errors.New("no record with networkid")
+	}
+	log.Debugf("the record with networkid %s is %v", networkid, rets)
+
+	bridgeName := rets[0]["name"].(string)
+	return bridgeName, nil
+}
+
 func (ovsdber *ovsdber) monitorBridges() {
 	for {
 		select {
@@ -161,12 +224,17 @@ func (ovsdber *ovsdber) monitorBridges() {
 							oldRow := row.Old
 							if _, ok := oldRow.Fields["name"]; ok {
 								name := oldRow.Fields["name"].(string)
-                                                                servicetype, err := ovsdber.getBridgeServiceType(name)
+								servicetype, err := ovsdber.getBridgeServiceType(name)
 								if err != nil {
 									log.Warnf("get servicetpye for bridgeName %s, error %v", name, err)
 									servicetype = "none"
 								}
-								ovsdber.createOvsdbBridge(name, servicetype)
+								networkid, err := ovsdber.getNetworkidByBridgeName(name)
+								if err != nil {
+									log.Warnf("get networkid for bridgeName %s, error %v", name, err)
+									networkid = "none"
+								}
+								ovsdber.createOvsdbBridge(name, servicetype, networkid)
 							}
 						}
 					}
@@ -184,7 +252,7 @@ func (ovsdber *ovsdber) getRootUUID() string {
 }
 
 func populateCache(updates libovsdb.TableUpdates) {
-        log.Debugf("udpates is %v", updates)
+	log.Debugf("udpates is %v", updates)
 	for table, tableUpdate := range updates.Updates {
 		if _, ok := ovsdbCache[table]; !ok {
 			ovsdbCache[table] = make(map[string]libovsdb.Row)

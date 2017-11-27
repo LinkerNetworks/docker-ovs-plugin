@@ -85,11 +85,6 @@ type NetworkState struct {
 func (d *Driver) CreateNetwork(r *dknet.CreateNetworkRequest) error {
 	log.Debugf("Create network request: %+v", r)
 
-	bridgeName, err := getBridgeName(r)
-	if err != nil {
-		return err
-	}
-
 	mtu, err := getBridgeMTU(r)
 	if err != nil {
 		return err
@@ -111,6 +106,11 @@ func (d *Driver) CreateNetwork(r *dknet.CreateNetworkRequest) error {
 	}
 
 	networkName, err := getNetworkName(r)
+	if err != nil {
+		return err
+	}
+
+	bridgeName, err := getBridgeName(r, networkName)
 	if err != nil {
 		return err
 	}
@@ -179,8 +179,12 @@ func checkExecutable(networkType, networkName string) error {
 
 func (d *Driver) DeleteNetwork(r *dknet.DeleteNetworkRequest) error {
 	log.Debugf("Delete network request: %+v", r)
-	// bridgeName := d.networks[r.NetworkID].BridgeName
-	bridgeName := bridgePrefix + truncateID(r.NetworkID)
+	// bridgeName := bridgePrefix + truncateID(r.NetworkID)
+	bridgeName, errg := d.ovsdber.getBridgeNameByNetworkId(r.NetworkID)
+	if errg != nil {
+		log.Errorf("failed to get bridgeName by networkid %v", errg)
+		return errg
+	}
 	log.Debugf("Deleting Bridge %s", bridgeName)
 	err := d.deleteBridge(bridgeName)
 	if err != nil {
@@ -233,12 +237,16 @@ func (d *Driver) Join(r *dknet.JoinRequest) (*dknet.JoinResponse, error) {
 		return nil, err
 	}
 
-	// bridgeName := d.networks[r.NetworkID].BridgeName
-	bridgeName := bridgePrefix + truncateID(r.NetworkID)
-	err = d.addOvsVethPort(bridgeName, localVethPair.Name, 0)
+	// bridgeName := bridgePrefix + truncateID(r.NetworkID)
+	bridgeName, err := d.ovsdber.getBridgeNameByNetworkId(r.NetworkID)
 	if err != nil {
-		log.Errorf("error attaching veth [ %s ] to bridge [ %s ]", localVethPair.Name, bridgeName)
+		log.Errorf("failed to get bridge for network %s, error %v", r.NetworkID, err)
 		return nil, err
+	}
+	erra := d.addOvsVethPort(bridgeName, localVethPair.Name, 0)
+	if erra != nil {
+		log.Errorf("error attaching veth [ %s ] to bridge [ %s ]", localVethPair.Name, bridgeName)
+		return nil, erra
 	}
 	log.Infof("Attached veth [ %s ] to bridge [ %s ]", localVethPair.Name, bridgeName)
 
@@ -267,11 +275,16 @@ func (d *Driver) Leave(r *dknet.LeaveRequest) error {
 	}
 	portID := fmt.Sprintf(ovsPortPrefix + truncateID(r.EndpointID))
 	// bridgeName := d.networks[r.NetworkID].BridgeName
-	bridgeName := bridgePrefix + truncateID(r.NetworkID)
-	err := d.ovsdber.deletePort(bridgeName, portID)
+	// bridgeName := bridgePrefix + truncateID(r.NetworkID)
+	bridgeName, err := d.ovsdber.getBridgeNameByNetworkId(r.NetworkID)
 	if err != nil {
-		log.Errorf("OVS port [ %s ] delete transaction failed on bridge [ %s ] due to: %s", portID, bridgeName, err)
+		log.Errorf("failed to get bridge for network %s, error %v", r.NetworkID, err)
 		return err
+	}
+	errd := d.ovsdber.deletePort(bridgeName, portID)
+	if errd != nil {
+		log.Errorf("OVS port [ %s ] delete transaction failed on bridge [ %s ] due to: %s", portID, bridgeName, errd)
+		return errd
 	}
 	log.Infof("Deleted OVS port [ %s ] from bridge [ %s ]", portID, bridgeName)
 	log.Debugf("Leave %s:%s", r.NetworkID, r.EndpointID)
@@ -337,6 +350,44 @@ func getIPByInterface(iname string) (string, error) {
 	}
 }
 
+//get bridge name from network id.
+//not use "docker network inspect --format '{{json .Options}}' ", since network has been deleted by dockerd
+// func getBridgeName(networkId string) string {
+
+// 	bridgeName := bridgePrefix + truncateID(networkId)
+
+// var commandTextBuffer bytes.Buffer
+// commandTextBuffer.WriteString("docker network inspect --format " + "\"" + "{{json .Options}}" + "\"" + " " + networkId)
+
+// output, _, err := ExecCommandWithComplete(commandTextBuffer.String())
+// if err != nil {
+// 	log.Errorf("get bridgeName from inspect error %v, using default bridgeName %s", err, bridgeName)
+// 	return bridgeName
+// }
+
+// log.Debugf("parsing docker network options %s for network id %s", output, networkId)
+// var dat map[string]interface{}
+// errp := json.Unmarshal([]byte(output), &dat)
+// if errp != nil {
+// 	log.Errorf("parsing network options error %v", errp)
+// 	return bridgeName
+// }
+
+// //first check customized bridge name
+// customeBridgeName := dat[bridgeNameOption].(string)
+// if len(customeBridgeName) > 0 {
+// 	return customeBridgeName
+// }
+
+// //second check generated bridge name
+// networkName := dat[networkNameOption].(string)
+// if len(networkName) > 0 {
+// 	return networkName + "-" + networkId
+// } else {
+// 	return bridgeName
+// }
+// }
+
 // func parseContainerIP(fullip string) string {
 // 	log.Debugf("the full ip is %s", fullip)
 // 	ips := strings.Split(fullip, "/")
@@ -393,8 +444,13 @@ func getBridgeMTU(r *dknet.CreateNetworkRequest) (int, error) {
 	return bridgeMTU, nil
 }
 
-func getBridgeName(r *dknet.CreateNetworkRequest) (string, error) {
-	bridgeName := bridgePrefix + truncateID(r.NetworkID)
+func getBridgeName(r *dknet.CreateNetworkRequest, networkname string) (string, error) {
+	networkid := truncateID(r.NetworkID)
+	bridgeName := bridgePrefix + networkid
+	if len(networkname) > 0 {
+		bridgeName = networkname + "-" + networkid
+	}
+
 	if r.Options != nil {
 		if name, ok := r.Options[bridgeNameOption].(string); ok {
 			bridgeName = name

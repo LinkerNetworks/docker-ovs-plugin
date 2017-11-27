@@ -19,7 +19,7 @@ func (d *Driver) initBridge(id string) error {
 	networktype := d.networks[id].NetworkType
 	networkname := d.networks[id].NetworkName
 
-	if err := d.ovsdber.addBridge(bridgeName, networktype); err != nil {
+	if err := d.ovsdber.addBridge(bridgeName, networktype, id); err != nil {
 		log.Errorf("error creating ovs bridge [ %s ] : [ %s ]", bridgeName, err)
 		return err
 	}
@@ -99,8 +99,8 @@ func runOvsScript(bridgeName, networkName, networkType, bindInterface string) {
 
 }
 
-func (ovsdber *ovsdber) createBridgeIface(name, servicetype string) error {
-	err := ovsdber.createOvsdbBridge(name, servicetype)
+func (ovsdber *ovsdber) createBridgeIface(name, servicetype, networkid string) error {
+	err := ovsdber.createOvsdbBridge(name, servicetype, networkid)
 	if err != nil {
 		log.Errorf("Bridge creation failed for the bridge named [ %s ] with errors: %s", name, err)
 	}
@@ -108,7 +108,7 @@ func (ovsdber *ovsdber) createBridgeIface(name, servicetype string) error {
 }
 
 // createOvsdbBridge creates the OVS bridge
-func (ovsdber *ovsdber) createOvsdbBridge(bridgeName, servicetype string) error {
+func (ovsdber *ovsdber) createOvsdbBridge(bridgeName, servicetype, networkid string) error {
 	namedBridgeUUID := "bridge"
 	namedPortUUID := "port"
 	namedIntfUUID := "intf"
@@ -116,7 +116,7 @@ func (ovsdber *ovsdber) createOvsdbBridge(bridgeName, servicetype string) error 
 	// intf row to insert
 	intf := make(map[string]interface{})
 	intf["name"] = bridgeName
-	intf["type"] = `internal`
+	intf["type"] = "internal"
 
 	insertIntfOp := libovsdb.Operation{
 		Op:       "insert",
@@ -142,7 +142,7 @@ func (ovsdber *ovsdber) createOvsdbBridge(bridgeName, servicetype string) error 
 	bridge["name"] = bridgeName
 	bridge["stp_enable"] = false
 	bridge["ports"] = libovsdb.UUID{namedPortUUID}
-        //for sgw and pgw, set datapath_type to "netdev"
+	//for sgw and pgw, set datapath_type to "netdev"
 	if strings.EqualFold(servicetype, type_pgw) || strings.EqualFold(servicetype, type_sgw) {
 		bridge["datapath_type"] = "netdev"
 	}
@@ -158,6 +158,7 @@ func (ovsdber *ovsdber) createOvsdbBridge(bridgeName, servicetype string) error 
 	bridgeOpt := make(map[string]interface{})
 	bridgeOpt["name"] = bridgeName
 	bridgeOpt["service_type"] = servicetype
+	bridgeOpt["network_id"] = networkid
 	insertBridgeOptOp := libovsdb.Operation{
 		Op:    "insert",
 		Table: "BridgeOpt",
@@ -196,7 +197,7 @@ func (ovsdber *ovsdber) createOvsdbBridge(bridgeName, servicetype string) error 
 }
 
 // Check if port exists prior to creating a bridge
-func (ovsdber *ovsdber) addBridge(bridgeName, servicetype string) error {
+func (ovsdber *ovsdber) addBridge(bridgeName, servicetype, networkid string) error {
 	if ovsdber.ovsdb == nil {
 		return errors.New("OVS not connected")
 	}
@@ -206,7 +207,7 @@ func (ovsdber *ovsdber) addBridge(bridgeName, servicetype string) error {
 		return err
 	}
 	if !exists {
-		if err := ovsdber.createBridgeIface(bridgeName, servicetype); err != nil {
+		if err := ovsdber.createBridgeIface(bridgeName, servicetype, networkid); err != nil {
 			return err
 		}
 		exists, err = ovsdber.portExists(bridgeName)

@@ -199,7 +199,7 @@ func (ovsdber *ovsdber) addOvsVethPort(bridgeName string, portName string, tag u
 	// intf row to insert
 	intf := make(map[string]interface{})
 	intf["name"] = portName
-	intf["type"] = `system`
+	intf["type"] = "system"
 
 	insertIntfOp := libovsdb.Operation{
 		Op:       "insert",
