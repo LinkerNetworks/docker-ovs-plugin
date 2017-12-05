@@ -159,12 +159,8 @@ func checkExecutable(networkType, networkName string) error {
 	}
 
 	command := "ps -ef | grep /usr/sbin/ovsopt.sh | grep -v grep | wc -l"
-	output, _, _ := ExecCommandWithComplete(command)
-	if output == "0" {
-		return nil
-	} else {
-		return errors.New("current node already run sgw or pgw process")
-	}
+	ExecCommandWithComplete(command)
+	return nil
 }
 
 // func (d *Driver) addBridgeToInterface(bridgeName string, bindInterface string) {
